@@ -1,58 +1,65 @@
+"""
+main.py
+=======
+Ponto de entrada do Marketplace Bot.
+"""
+
+import sys
 import time
-import os
 from playwright.sync_api import sync_playwright
+
 from browser.session import create_session
 from bot.pipeline import run_pipeline
-from dotenv import load_dotenv
+from config.settings import POLL_INTERVAL_SEC
+from utils.logger import log
 
-load_dotenv()
 
-INTERVAL = int(os.getenv("POLL_INTERVAL_MINUTES", 3)) * 60
+def main() -> None:
+    log.info("=" * 50)
+    log.info("🤖  Marketplace Bot — iniciando")
+    log.info(f"⏱️   Intervalo de verificação: {POLL_INTERVAL_SEC // 60} min")
+    log.info("=" * 50)
 
-def main():
-    print("🤖 Marketplace Bot iniciado!")
-    print(f"⏱️ Verificando mensagens a cada {INTERVAL // 60} minutos...\n")
+    consecutive_errors = 0
+    MAX_CONSECUTIVE_ERRORS = 5
 
-    with sync_playwright() as p:
-        context, page = create_session(p)
-        print("✅ Navegador pronto. Posicione na lista de mensagens Messenger...")
-        input("Pressione ENTER quando estiver na lista de mensagens do Messenger...")
+    try:
+        with sync_playwright() as pw:
+            context, page = create_session(pw)
 
-        while True:
-            try:
-                print("─" * 40)
-                print(f"📍 URL atual: {page.url}")
+            cycle = 0
+            while True:
+                cycle += 1
+                log.info(f"\n🔄 Ciclo #{cycle} | URL: {page.url}")
 
-                # Volta para lista se estiver em conversa
-                if "/t/" in page.url:
-                    page.keyboard.press("ArrowLeft")
-                    page.wait_for_timeout(2000)
+                try:
+                    run_pipeline(page)
+                    consecutive_errors = 0  # reset em caso de sucesso
 
-                # Clica especificamente no Marketplace do Messenger (não anúncios)
-                marketplace_btn = None
-                for selector in [
-                    '[aria-label*="Marketplace"]',
-                    'div[aria-label*="Marketplace"]',
-                    'a[href*="/messages/marketplace"]'
-                ]:
-                    marketplace_btn = page.query_selector(selector)
-                    if marketplace_btn:
-                        print(f"✅ Encontrou Marketplace com seletor: {selector}")
+                except Exception as e:
+                    consecutive_errors += 1
+                    log.error(
+                        f"❌ Erro no ciclo #{cycle} "
+                        f"({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}",
+                        exc_info=True,
+                    )
+
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        log.critical("🚨 Muitos erros consecutivos. Encerrando.")
                         break
 
-                if marketplace_btn:
-                    marketplace_btn.click()
-                    page.wait_for_timeout(4000)
-                else:
-                    print("⚠️ Botão Marketplace não encontrado")
+                log.info(f"😴 Aguardando {POLL_INTERVAL_SEC // 60} minuto(s)...\n")
+                time.sleep(POLL_INTERVAL_SEC)
 
-                run_pipeline(page)
+    except KeyboardInterrupt:
+        log.info("\n⛔  Bot interrompido pelo usuário.")
+        sys.exit(0)
+    except Exception as e:
+        log.critical(f"💥 Erro fatal: {e}", exc_info=True)
+        sys.exit(1)
+    finally:
+        log.info("👋  Bot encerrado.")
 
-            except Exception as e:
-                print(f"⚠️ Erro no ciclo principal: {e}")
-
-            print(f"😴 Aguardando {INTERVAL // 60} minutos...\n")
-            time.sleep(INTERVAL)
 
 if __name__ == "__main__":
     main()
