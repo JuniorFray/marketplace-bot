@@ -1,0 +1,16 @@
+# Ambiente virtual
+.venv/
+
+# Credenciais e sessão
+.env
+firebase/serviceAccountKey.json
+browser/cookies.json
+browser/session_data/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# VS Code
+.vscode/
